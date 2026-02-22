@@ -1,14 +1,13 @@
-<a href="https://chat.vercel.ai/">
-  <img alt="Next.js 14 and App Router-ready OpenChat." src="app/(chat)/opengraph-image.png">
-  <h1 align="center">OpenChat</h1>
+<a href="https://github.com/your-username/openfire">
+  <img alt="Next.js and App Router-ready OpenFire." src="app/(chat)/opengraph-image.png">
+  <h1 align="center">OpenFire</h1>
 </a>
 
 <p align="center">
-    OpenChat (formerly AI Chatbot) is a free, open-source template built with Next.js and the AI SDK that helps you quickly build powerful chatbot applications.
+    OpenFire is a free, open-source template built with Next.js and the AI SDK that helps you quickly build powerful chatbot applications.
 </p>
 
 <p align="center">
-  <a href="https://openchat.dev"><strong>Read Docs</strong></a> ·
   <a href="#features"><strong>Features</strong></a> ·
   <a href="#model-providers"><strong>Model Providers</strong></a> ·
   <a href="#deploy-your-own"><strong>Deploy Your Own</strong></a> ·
@@ -48,13 +47,13 @@ With the [AI SDK](https://ai-sdk.dev/docs/introduction), you can also switch to 
 
 ## Deploy Your Own
 
-You can deploy your own version of OpenChat to Vercel with one click:
+You can deploy your own version of OpenFire to Vercel with one click:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/templates/next.js/openchat)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/templates/next.js/openfire)
 
 ## Running locally
 
-You will need to use the environment variables [defined in `.env.example`](.env.example) to run OpenChat. It's recommended you use [Vercel Environment Variables](https://vercel.com/docs/projects/environment-variables) for this, but a `.env` file is all that is necessary.
+You will need to use the environment variables [defined in `.env.example`](.env.example) to run OpenFire. It's recommended you use [Vercel Environment Variables](https://vercel.com/docs/projects/environment-variables) for this, but a `.env` file is all that is necessary.
 
 > Note: You should not commit your `.env` file or it will expose secrets that will allow others to control access to your various AI and authentication provider accounts.
 
@@ -68,4 +67,4 @@ pnpm db:migrate # Setup database or apply latest database changes
 pnpm dev
 ```
 
-Your app template should now be running on [localhost:3000](http://localhost:3000).
+Your app should now be running on [localhost:3000](http://localhost:3000).
