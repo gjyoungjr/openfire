@@ -37,13 +37,40 @@ import { generateHashedPassword } from "./utils";
 // use the Drizzle adapter for Auth.js / NextAuth
 // https://authjs.dev/reference/adapter/drizzle
 
-// biome-ignore lint: Forbidden non-null assertion.
-const client = postgres(process.env.POSTGRES_URL!);
-const db = drizzle(client);
+/** True when POSTGRES_URL is set and valid (DB enabled). */
+function isDbConfigured(): boolean {
+  const url = process.env.POSTGRES_URL;
+  if (!url?.trim()) return false;
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let client: ReturnType<typeof postgres> | null = null;
+let db: ReturnType<typeof drizzle> | null = null;
+
+if (isDbConfigured()) {
+  client = postgres(process.env.POSTGRES_URL!);
+  db = drizzle(client);
+}
+
+function getDb(): NonNullable<typeof db> {
+  if (!db) {
+    throw new OpenFireError(
+      "bad_request:database",
+      "Database is not configured (set POSTGRES_URL to enable)"
+    );
+  }
+  return db;
+}
 
 export async function getUser(email: string): Promise<User[]> {
+  if (!db) return [];
   try {
-    return await db.select().from(user).where(eq(user.email, email));
+    return await getDb().select().from(user).where(eq(user.email, email));
   } catch (_error) {
     throw new OpenFireError(
       "bad_request:database",
@@ -53,21 +80,26 @@ export async function getUser(email: string): Promise<User[]> {
 }
 
 export async function createUser(email: string, password: string) {
+  const database = getDb();
   const hashedPassword = generateHashedPassword(password);
 
   try {
-    return await db.insert(user).values({ email, password: hashedPassword });
+    return await database.insert(user).values({ email, password: hashedPassword });
   } catch (_error) {
     throw new OpenFireError("bad_request:database", "Failed to create user");
   }
 }
 
 export async function createGuestUser() {
+  if (!db) {
+    const email = `guest-${Date.now()}`;
+    return [{ id: generateUUID(), email }];
+  }
   const email = `guest-${Date.now()}`;
   const password = generateHashedPassword(generateUUID());
 
   try {
-    return await db.insert(user).values({ email, password }).returning({
+    return await getDb().insert(user).values({ email, password }).returning({
       id: user.id,
       email: user.email,
     });
@@ -90,8 +122,9 @@ export async function saveChat({
   title: string;
   visibility: VisibilityType;
 }) {
+  const database = getDb();
   try {
-    return await db.insert(chat).values({
+    return await database.insert(chat).values({
       id,
       createdAt: new Date(),
       userId,
@@ -104,12 +137,13 @@ export async function saveChat({
 }
 
 export async function deleteChatById({ id }: { id: string }) {
+  const database = getDb();
   try {
-    await db.delete(vote).where(eq(vote.chatId, id));
-    await db.delete(message).where(eq(message.chatId, id));
-    await db.delete(stream).where(eq(stream.chatId, id));
+    await database.delete(vote).where(eq(vote.chatId, id));
+    await database.delete(message).where(eq(message.chatId, id));
+    await database.delete(stream).where(eq(stream.chatId, id));
 
-    const [chatsDeleted] = await db
+    const [chatsDeleted] = await database
       .delete(chat)
       .where(eq(chat.id, id))
       .returning();
@@ -123,8 +157,9 @@ export async function deleteChatById({ id }: { id: string }) {
 }
 
 export async function deleteAllChatsByUserId({ userId }: { userId: string }) {
+  const database = getDb();
   try {
-    const userChats = await db
+    const userChats = await database
       .select({ id: chat.id })
       .from(chat)
       .where(eq(chat.userId, userId));
@@ -135,11 +170,11 @@ export async function deleteAllChatsByUserId({ userId }: { userId: string }) {
 
     const chatIds = userChats.map((c) => c.id);
 
-    await db.delete(vote).where(inArray(vote.chatId, chatIds));
-    await db.delete(message).where(inArray(message.chatId, chatIds));
-    await db.delete(stream).where(inArray(stream.chatId, chatIds));
+    await database.delete(vote).where(inArray(vote.chatId, chatIds));
+    await database.delete(message).where(inArray(message.chatId, chatIds));
+    await database.delete(stream).where(inArray(stream.chatId, chatIds));
 
-    const deletedChats = await db
+    const deletedChats = await database
       .delete(chat)
       .where(eq(chat.userId, userId))
       .returning();
@@ -164,11 +199,12 @@ export async function getChatsByUserId({
   startingAfter: string | null;
   endingBefore: string | null;
 }) {
+  const database = getDb();
   try {
     const extendedLimit = limit + 1;
 
     const query = (whereCondition?: SQL<any>) =>
-      db
+      database
         .select()
         .from(chat)
         .where(
@@ -182,7 +218,7 @@ export async function getChatsByUserId({
     let filteredChats: Chat[] = [];
 
     if (startingAfter) {
-      const [selectedChat] = await db
+      const [selectedChat] = await database
         .select()
         .from(chat)
         .where(eq(chat.id, startingAfter))
@@ -197,7 +233,7 @@ export async function getChatsByUserId({
 
       filteredChats = await query(gt(chat.createdAt, selectedChat.createdAt));
     } else if (endingBefore) {
-      const [selectedChat] = await db
+      const [selectedChat] = await database
         .select()
         .from(chat)
         .where(eq(chat.id, endingBefore))
@@ -230,8 +266,9 @@ export async function getChatsByUserId({
 }
 
 export async function getChatById({ id }: { id: string }) {
+  const database = getDb();
   try {
-    const [selectedChat] = await db.select().from(chat).where(eq(chat.id, id));
+    const [selectedChat] = await database.select().from(chat).where(eq(chat.id, id));
     if (!selectedChat) {
       return null;
     }
@@ -243,8 +280,9 @@ export async function getChatById({ id }: { id: string }) {
 }
 
 export async function saveMessages({ messages }: { messages: DBMessage[] }) {
+  const database = getDb();
   try {
-    return await db.insert(message).values(messages);
+    return await database.insert(message).values(messages);
   } catch (_error) {
     throw new OpenFireError("bad_request:database", "Failed to save messages");
   }
@@ -257,16 +295,18 @@ export async function updateMessage({
   id: string;
   parts: DBMessage["parts"];
 }) {
+  const database = getDb();
   try {
-    return await db.update(message).set({ parts }).where(eq(message.id, id));
+    return await database.update(message).set({ parts }).where(eq(message.id, id));
   } catch (_error) {
     throw new OpenFireError("bad_request:database", "Failed to update message");
   }
 }
 
 export async function getMessagesByChatId({ id }: { id: string }) {
+  const database = getDb();
   try {
-    return await db
+    return await database
       .select()
       .from(message)
       .where(eq(message.chatId, id))
@@ -288,19 +328,20 @@ export async function voteMessage({
   messageId: string;
   type: "up" | "down";
 }) {
+  const database = getDb();
   try {
-    const [existingVote] = await db
+    const [existingVote] = await database
       .select()
       .from(vote)
       .where(and(eq(vote.messageId, messageId)));
 
     if (existingVote) {
-      return await db
+      return await database
         .update(vote)
         .set({ isUpvoted: type === "up" })
         .where(and(eq(vote.messageId, messageId), eq(vote.chatId, chatId)));
     }
-    return await db.insert(vote).values({
+    return await database.insert(vote).values({
       chatId,
       messageId,
       isUpvoted: type === "up",
@@ -311,8 +352,9 @@ export async function voteMessage({
 }
 
 export async function getVotesByChatId({ id }: { id: string }) {
+  const database = getDb();
   try {
-    return await db.select().from(vote).where(eq(vote.chatId, id));
+    return await database.select().from(vote).where(eq(vote.chatId, id));
   } catch (_error) {
     throw new OpenFireError(
       "bad_request:database",
@@ -334,8 +376,9 @@ export async function saveDocument({
   content: string;
   userId: string;
 }) {
+  const database = getDb();
   try {
-    return await db
+    return await database
       .insert(document)
       .values({
         id,
@@ -352,8 +395,9 @@ export async function saveDocument({
 }
 
 export async function getDocumentsById({ id }: { id: string }) {
+  const database = getDb();
   try {
-    const documents = await db
+    const documents = await database
       .select()
       .from(document)
       .where(eq(document.id, id))
@@ -369,8 +413,9 @@ export async function getDocumentsById({ id }: { id: string }) {
 }
 
 export async function getDocumentById({ id }: { id: string }) {
+  const database = getDb();
   try {
-    const [selectedDocument] = await db
+    const [selectedDocument] = await database
       .select()
       .from(document)
       .where(eq(document.id, id))
@@ -392,8 +437,9 @@ export async function deleteDocumentsByIdAfterTimestamp({
   id: string;
   timestamp: Date;
 }) {
+  const database = getDb();
   try {
-    await db
+    await database
       .delete(suggestion)
       .where(
         and(
@@ -402,7 +448,7 @@ export async function deleteDocumentsByIdAfterTimestamp({
         )
       );
 
-    return await db
+    return await database
       .delete(document)
       .where(and(eq(document.id, id), gt(document.createdAt, timestamp)))
       .returning();
@@ -419,8 +465,9 @@ export async function saveSuggestions({
 }: {
   suggestions: Suggestion[];
 }) {
+  const database = getDb();
   try {
-    return await db.insert(suggestion).values(suggestions);
+    return await database.insert(suggestion).values(suggestions);
   } catch (_error) {
     throw new OpenFireError(
       "bad_request:database",
@@ -434,8 +481,9 @@ export async function getSuggestionsByDocumentId({
 }: {
   documentId: string;
 }) {
+  const database = getDb();
   try {
-    return await db
+    return await database
       .select()
       .from(suggestion)
       .where(eq(suggestion.documentId, documentId));
@@ -448,8 +496,9 @@ export async function getSuggestionsByDocumentId({
 }
 
 export async function getMessageById({ id }: { id: string }) {
+  const database = getDb();
   try {
-    return await db.select().from(message).where(eq(message.id, id));
+    return await database.select().from(message).where(eq(message.id, id));
   } catch (_error) {
     throw new OpenFireError(
       "bad_request:database",
@@ -465,8 +514,9 @@ export async function deleteMessagesByChatIdAfterTimestamp({
   chatId: string;
   timestamp: Date;
 }) {
+  const database = getDb();
   try {
-    const messagesToDelete = await db
+    const messagesToDelete = await database
       .select({ id: message.id })
       .from(message)
       .where(
@@ -478,13 +528,13 @@ export async function deleteMessagesByChatIdAfterTimestamp({
     );
 
     if (messageIds.length > 0) {
-      await db
+      await database
         .delete(vote)
         .where(
           and(eq(vote.chatId, chatId), inArray(vote.messageId, messageIds))
         );
 
-      return await db
+      return await database
         .delete(message)
         .where(
           and(eq(message.chatId, chatId), inArray(message.id, messageIds))
@@ -505,8 +555,9 @@ export async function updateChatVisibilityById({
   chatId: string;
   visibility: "private" | "public";
 }) {
+  const database = getDb();
   try {
-    return await db.update(chat).set({ visibility }).where(eq(chat.id, chatId));
+    return await database.update(chat).set({ visibility }).where(eq(chat.id, chatId));
   } catch (_error) {
     throw new OpenFireError(
       "bad_request:database",
@@ -522,8 +573,9 @@ export async function updateChatTitleById({
   chatId: string;
   title: string;
 }) {
+  const database = getDb();
   try {
-    return await db.update(chat).set({ title }).where(eq(chat.id, chatId));
+    return await database.update(chat).set({ title }).where(eq(chat.id, chatId));
   } catch (error) {
     console.warn("Failed to update title for chat", chatId, error);
     return;
@@ -537,12 +589,13 @@ export async function getMessageCountByUserId({
   id: string;
   differenceInHours: number;
 }) {
+  const database = getDb();
   try {
     const twentyFourHoursAgo = new Date(
       Date.now() - differenceInHours * 60 * 60 * 1000
     );
 
-    const [stats] = await db
+    const [stats] = await database
       .select({ count: count(message.id) })
       .from(message)
       .innerJoin(chat, eq(message.chatId, chat.id))
@@ -571,8 +624,9 @@ export async function createStreamId({
   streamId: string;
   chatId: string;
 }) {
+  const database = getDb();
   try {
-    await db
+    await database
       .insert(stream)
       .values({ id: streamId, chatId, createdAt: new Date() });
   } catch (_error) {
@@ -584,8 +638,9 @@ export async function createStreamId({
 }
 
 export async function getStreamIdsByChatId({ chatId }: { chatId: string }) {
+  const database = getDb();
   try {
-    const streamIds = await db
+    const streamIds = await database
       .select({ id: stream.id })
       .from(stream)
       .where(eq(stream.chatId, chatId))
